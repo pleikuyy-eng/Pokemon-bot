@@ -1,88 +1,102 @@
-const { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } = require("discord.js");
-const express = require("express");
+const {
+  Client,
+  GatewayIntentBits,
+  SlashCommandBuilder,
+  REST,
+  Routes,
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require("discord.js");
+
 const axios = require("axios");
 
+// 🔥 LẤY TỪ RENDER ENVIRONMENT
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
+
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds]
 });
 
-const TOKEN = process.env.TOKEN;
-const CLIENT_ID = "1473553985033207981";
-const GUILD_ID = "1472645818132725914";
-
-let currentWildPokemon = null;
-let userInventory = {};
+let currentPokemon = null;
 
 client.once("ready", async () => {
-  console.log(`Logged in as ${client.user.tag}`);
+  console.log(`Bot online: ${client.user.tag}`);
 
   const commands = [
-    { name: "spawn", description: "Spawn a wild pokemon" },
-    { name: "catch", description: "Catch the current wild pokemon" },
-  ];
+    new SlashCommandBuilder()
+      .setName("spawn")
+      .setDescription("Spawn 1 Pokémon hoang dã")
+  ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-  await rest.put(
-    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-    { body: commands }
-  );
-
-  console.log("Slash commands registered");
+  try {
+    await rest.put(
+      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
+      { body: commands }
+    );
+    console.log("Đã đăng ký lệnh /spawn");
+  } catch (err) {
+    console.error(err);
+  }
 });
 
 client.on("interactionCreate", async interaction => {
-  if (!interaction.isChatInputCommand()) return;
 
-  // SPAWN
-  if (interaction.commandName === "spawn") {
-    const randomId = Math.floor(Math.random() * 151) + 1;
-    const response = await axios.get(`https://pokeapi.co/api/v2/pokemon/${randomId}`);
-    const pokemon = response.data;
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === "spawn") {
 
-    currentWildPokemon = {
-      name: pokemon.name,
-      image: pokemon.sprites.other["official-artwork"].front_default
-    };
+      const randomId = Math.floor(Math.random() * 151) + 1;
 
-    const embed = new EmbedBuilder()
-      .setTitle("Một Pokémon hoang dã xuất hiện!")
-      .setDescription(`✨ ${pokemon.name.toUpperCase()}`)
-      .setImage(currentWildPokemon.image)
-      .setColor(0xff0000);
+      const res = await axios.get(
+        `https://pokeapi.co/api/v2/pokemon/${randomId}`
+      );
 
-    await interaction.reply({ embeds: [embed] });
+      const pokemon = res.data;
+      currentPokemon = pokemon;
+
+      const embed = new EmbedBuilder()
+        .setTitle(`✨ ${pokemon.name.toUpperCase()} xuất hiện!`)
+        .setImage(pokemon.sprites.front_default)
+        .setDescription("Bấm nút bên dưới để bắt!")
+        .setColor(0x00ff00);
+
+      const button = new ButtonBuilder()
+        .setCustomId("catch")
+        .setLabel("🎯 Bắt Pokémon")
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder().addComponents(button);
+
+      await interaction.reply({
+        embeds: [embed],
+        components: [row]
+      });
+    }
   }
 
-  // CATCH
-  if (interaction.commandName === "catch") {
-    if (!currentWildPokemon) {
-      return interaction.reply("❌ Không có Pokémon hoang dã nào!");
+  if (interaction.isButton()) {
+    if (interaction.customId === "catch") {
+
+      if (!currentPokemon) {
+        return interaction.reply({
+          content: "Không có Pokémon nào!",
+          ephemeral: true
+        });
+      }
+
+      await interaction.reply({
+        content: `🎉 ${interaction.user} đã bắt được ${currentPokemon.name}!`
+      });
+
+      currentPokemon = null;
     }
-
-    const userId = interaction.user.id;
-
-    if (!userInventory[userId]) {
-      userInventory[userId] = [];
-    }
-
-    userInventory[userId].push(currentWildPokemon.name);
-
-    await interaction.reply(`🎉 Bạn đã bắt được ${currentWildPokemon.name}!`);
-
-    currentWildPokemon = null;
   }
+
 });
 
 client.login(TOKEN);
-
-// Web server cho Render
-const app = express();
-app.get("/", (req, res) => {
-  res.send("Bot is running");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Web server running");
-});
